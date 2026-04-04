@@ -32,3 +32,8 @@ build/
 *.png
 
 coverage/
+
+node_modules/
+.env
+.vscode/
+*.log
