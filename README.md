@@ -29,6 +29,7 @@ It ensures:
 - eth → smart contracts
 - frontend → UI
 - docs → documentation
+```plaintext
 herb-tracechain/
 ├── backend/
 │   └── README.md
