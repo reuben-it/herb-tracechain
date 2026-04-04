@@ -29,6 +29,20 @@ It ensures:
 - eth → smart contracts
 - frontend → UI
 - docs → documentation
+herb-tracechain/
+├── backend/
+│   └── README.md
+├── fabric/
+│   └── README.md
+├── eth/
+│   └── README.md
+├── frontend/
+│   └── README.md
+├── docs/
+│   ├── README.md
+│   └── architecture.md
+├── .gitignore
+└── README.md
 
 ## Status
 Phase 1: Setup (In Progress)
