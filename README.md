@@ -44,6 +44,7 @@ herb-tracechain/
 │   └── architecture.md
 ├── .gitignore
 └── README.md
+```
 
 ## Status
 Phase 1: Setup (In Progress)
