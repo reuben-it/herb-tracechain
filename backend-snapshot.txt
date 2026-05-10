@@ -1,0 +1,412 @@
+const { Gateway, Wallets } = require('fabric-network');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
+
+async function getContract() {
+  const certPath = process.env.ADMIN_CERT;
+  const keyDir = process.env.ADMIN_KEY_DIR;
+  const keyFiles = fs.readdirSync(keyDir);
+  const keyPath = path.join(keyDir, keyFiles[0]);
+
+  const cert = fs.readFileSync(certPath).toString();
+  const key = fs.readFileSync(keyPath).toString();
+
+  const wallet = await Wallets.newInMemoryWallet();
+  await wallet.put('admin', {
+    credentials: { certificate: cert, privateKey: key },
+    mspId: 'Org1MSP',
+    type: 'X.509'
+  });
+
+  const tlsCert = fs.readFileSync(process.env.PEER_TLS_CERT).toString();
+
+  const org2TlsCert = fs.readFileSync('/workspaces/herb-tracechain/fabric-samples/test-network/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt').toString();
+
+  const connectionProfile = {
+    name: 'herb-tracechain',
+    version: '1.0.0',
+    client: { organization: 'Org1', connection: { timeout: { peer: { endorser: '300' } } } },
+    organizations: {
+      Org1: { mspid: 'Org1MSP', peers: ['peer0.org1.example.com'] },
+      Org2: { mspid: 'Org2MSP', peers: ['peer0.org2.example.com'] }
+    },
+    peers: {
+      'peer0.org1.example.com': {
+        url: 'grpcs://localhost:7051',
+        tlsCACerts: { pem: tlsCert },
+        grpcOptions: { 'ssl-target-name-override': 'peer0.org1.example.com' }
+      },
+      'peer0.org2.example.com': {
+        url: 'grpcs://localhost:9051',
+        tlsCACerts: { pem: org2TlsCert },
+        grpcOptions: { 'ssl-target-name-override': 'peer0.org2.example.com' }
+      }
+    },
+    channels: {
+      mychannel: {
+        orderers: ['orderer.example.com'],
+        peers: {
+          'peer0.org1.example.com': {
+            endorsingPeer: true,
+            chaincodeQuery: true,
+            ledgerQuery: true,
+            eventSource: true
+          },
+          'peer0.org2.example.com': {
+            endorsingPeer: true,
+            chaincodeQuery: false,
+            ledgerQuery: false,
+            eventSource: false
+          }
+        }
+      }
+    },
+    orderers: {
+      'orderer.example.com': {
+        url: 'grpcs://localhost:7050',
+        tlsCACerts: { path: '/workspaces/herb-tracechain/fabric-samples/test-network/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem' },
+        grpcOptions: { 'ssl-target-name-override': 'orderer.example.com' }
+      }
+    }
+  };
+
+  const gateway = new Gateway();
+  await gateway.connect(connectionProfile, {
+    wallet,
+    identity: 'admin',
+    discovery: { enabled: false, asLocalhost: true }
+  });
+
+  const network = await gateway.getNetwork(process.env.FABRIC_CHANNEL);
+  const contract = network.getContract(process.env.FABRIC_CHAINCODE);
+
+  return { contract, gateway };
+}
+
+async function submitTx(fcn, ...args) {
+  const { contract, gateway } = await getContract();
+  try {
+    const result = await contract.submitTransaction(fcn, ...args).catch(err => {
+  console.error('FULL ERROR:', JSON.stringify(err, null, 2));
+  console.error('ERROR MESSAGE:', err.message);
+  if (err.responses) err.responses.forEach(r => console.error('PEER RESPONSE:', JSON.stringify(r)));
+  throw err;
+});
+    return result.toString();
+  } finally {
+    gateway.disconnect();
+  }
+}
+
+async function evaluateTx(fcn, ...args) {
+  const { contract, gateway } = await getContract();
+  try {
+    const result = await contract.evaluateTransaction(fcn, ...args);
+    return result.toString();
+  } finally {
+    gateway.disconnect();
+  }
+}
+
+module.exports = { submitTx, evaluateTx };\n\n========== index.js ==========
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
+
+const authRoutes = require('./routes-auth');
+const herbRoutes = require('./routes-herbs');
+
+const app = express();
+
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.use('/auth', authRoutes);
+app.use('/herbs', herbRoutes);
+
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Internal server error' });
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
+});\n\n========== routes-herbs.js ==========
+const express = require('express');
+const { submitTx, evaluateTx } = require('./fabric');
+const { authMiddleware, requireRole } = require('./middleware');
+
+const router = express.Router();
+
+// Helper — transform chaincode Herb object to frontend shape
+function transformHerb(raw) {
+  let herb;
+  try { herb = JSON.parse(raw); } catch { return null; }
+
+  const statusMap = {
+    'HARVESTED':   'HARVESTED',
+    'IN_TRANSIT':  'HARVESTED',
+    'PROCESSING':  'PROCESSED',
+    'PACKAGED':    'PACKAGED',
+    'DISTRIBUTED': 'DISTRIBUTED'
+  };
+
+  const allStages = ['HARVESTED', 'PROCESSED', 'PACKAGED', 'DISTRIBUTED', 'VERIFIED'];
+  const currentStatus = statusMap[herb.status] || herb.status;
+  const currentIndex = allStages.indexOf(currentStatus);
+
+  const timeline = allStages.map((stage, i) => ({
+    stage,
+    timestamp: herb.updatedAt || herb.harvestDate || new Date().toISOString(),
+    status: i < currentIndex ? 'completed' : i === currentIndex ? 'current' : 'future'
+  }));
+
+  return {
+    id: herb.herbId,
+    name: herb.herbName,
+    species: herb.species || '',
+    harvestDate: herb.harvestDate || '',
+    status: currentStatus,
+    location: herb.location || '',
+    collectorEmail: herb.collectorId || '',
+    processorEmail: herb.processorId || '',
+    ethereumHash: herb.txHash || '',
+    verificationStatus: currentStatus === 'DISTRIBUTED' ? 'verified' : 'pending',
+    notes: herb.notes || '',
+    timeline
+  };
+}
+
+// POST /herbs/harvest
+router.post('/harvest', authMiddleware, requireRole('collector'), async (req, res) => {
+  try {
+    const { name, species, location, quantity, harvestDate } = req.body;
+    const herbId = `H${Date.now()}`;
+    const collectorId = req.user.fabricId;
+    const notes = `Species:${species || 'N/A'} Date:${harvestDate || 'N/A'}`;
+
+    await submitTx('RecordHarvest', herbId, collectorId, name, location, quantity, 'kg', notes);
+    res.status(201).json({ herbId, message: 'Herb harvested successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /herbs/transfer
+router.post('/transfer', authMiddleware, requireRole('collector'), async (req, res) => {
+  try {
+    const { herbId, recipientEmail, notes } = req.body;
+    await submitTx('TransferToProcessor', herbId, recipientEmail, notes || '');
+    res.json({ message: 'Herb transferred successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /herbs/my-herbs
+router.get('/my-herbs', authMiddleware, async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryByCollector', req.user.fabricId);
+    const herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+    res.json({ herbs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /herbs/process
+router.post('/process', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const { herbId, processingMethod, duration, temperature, notes } = req.body;
+    const batchId = `B${Date.now()}`;
+    const details = `${processingMethod} ${duration}h ${temperature}C ${notes || ''}`;
+    await submitTx('ProcessHerb', herbId, batchId, req.user.fabricId, details);
+    res.json({ message: 'Processing recorded successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /herbs/package
+router.post('/package', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const { herbId, packageSize, packageType, quantity, expiryDate } = req.body;
+    const packageId = `PKG${Date.now()}`;
+    const details = `${packageType} ${packageSize} qty:${quantity} exp:${expiryDate}`;
+    await submitTx('PackageHerb', herbId, packageId, details);
+    res.json({ message: 'Packaging recorded successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /herbs/distribute
+router.post('/distribute', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const { herbId, recipientEmail, distributionDate, notes } = req.body;
+    const distId = `D${Date.now()}`;
+    await submitTx('DistributeHerb', herbId, distId, recipientEmail, notes || '');
+    res.json({ message: 'Distribution recorded successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /herbs/in-progress
+router.get('/in-progress', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryByStatus', 'IN_TRANSIT');
+    const herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+    res.json({ herbs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /herbs/all
+router.get('/all', authMiddleware, requireRole('admin'), async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryAllHerbs');
+    let herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+
+    if (req.query.status && req.query.status !== 'all') {
+      herbs = herbs.filter(h => h.status === req.query.status);
+    }
+    if (req.query.search) {
+      const s = req.query.search.toLowerCase();
+      herbs = herbs.filter(h =>
+        h.name.toLowerCase().includes(s) ||
+        h.id.toLowerCase().includes(s)
+      );
+    }
+
+    res.json({ herbs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /herbs/verify/:herbId  (public)
+router.get('/verify/:herbId', async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryHerb', req.params.herbId);
+    const herb = transformHerb(raw);
+    if (!herb) return res.status(404).json({ message: 'Herb not found' });
+    res.json({ herb });
+  } catch (err) {
+    res.status(404).json({ message: 'Herb not found' });
+  }
+});
+
+module.exports = router;\n\n========== routes-auth.js ==========
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const users = require('./users');
+require('dotenv').config();
+
+const router = express.Router();
+
+router.post('/login', (req, res) => {
+  const { email, password } = req.body;
+
+  const found = users[email];
+  if (!found || found.password !== password) {
+    return res.status(401).json({ message: 'Invalid credentials' });
+  }
+
+  const token = jwt.sign(
+    {
+      id: found.id,
+      email: found.email,
+      role: found.role,
+      name: found.name,
+      fabricId: found.fabricId
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '24h' }
+  );
+
+  res.json({
+    token,
+    user: {
+      id: found.id,
+      email: found.email,
+      role: found.role,
+      name: found.name
+    }
+  });
+});
+
+module.exports = router;\n\n========== middleware.js ==========
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ message: 'Invalid or expired token' });
+  }
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
+module.exports = { authMiddleware, requireRole };\n\n========== users.js ==========
+const users = {
+  "collector@example.com": {
+    id: "user-collector-001",
+    email: "collector@example.com",
+    role: "collector",
+    name: "John Collector",
+    fabricId: "C01",
+    password: "password"
+  },
+  "processor@example.com": {
+    id: "user-processor-001",
+    email: "processor@example.com",
+    role: "processor",
+    name: "Jane Processor",
+    fabricId: "P01",
+    password: "password"
+  },
+  "admin@example.com": {
+    id: "user-admin-001",
+    email: "admin@example.com",
+    role: "admin",
+    name: "Admin User",
+    fabricId: "A01",
+    password: "password"
+  }
+};
+
+module.exports = users;

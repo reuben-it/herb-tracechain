@@ -33,7 +33,9 @@ export default function Login() {
     try {
       await login(email, password);
       toast.success("Login successful!");
-      setLocation("/collector");
+      const roleMap: Record<string, string> = { collector: "/collector", processor: "/processor", admin: "/admin" };
+const userData = JSON.parse(localStorage.getItem("user_data") || "{}");
+setLocation(roleMap[userData.role] || "/collector");
     } catch (error: any) {
       toast.error(error.message || "Login failed");
     } finally {

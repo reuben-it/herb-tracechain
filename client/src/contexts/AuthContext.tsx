@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Create axios instance with auth header
   const apiClient = axios.create({
-    baseURL: "/api",
+    baseURL: "https://solid-acorn-69g77pg9vgvwcrq9-3001.app.github.dev",
   });
 
   // Add JWT to requests
