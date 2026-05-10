@@ -102,7 +102,22 @@ async function submitTx(fcn, ...args) {
 async function evaluateTx(fcn, ...args) {
   const { contract, gateway } = await getContract();
   try {
-    const result = await contract.evaluateTransaction(fcn, ...args);
+    let result;
+    try {
+      result = await contract.evaluateTransaction(fcn, ...args);
+    } catch (err) {
+      if (err.message && err.message.includes('Value did not match schema')) {
+        console.log('STATUS:', err.status);
+        console.log('isEndorsed:', err.isEndorsed);
+        const network = await gateway.getNetwork(process.env.FABRIC_CHANNEL);
+        const ch = network.getChannel();
+        const txr = ch.newProposal(fcn, { arguments: args });
+        const prop = await txr.endorse();
+        result = prop.getResult();
+      } else {
+        throw err;
+      }
+    }
     return result.toString();
   } finally {
     gateway.disconnect();

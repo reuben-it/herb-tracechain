@@ -8,7 +8,7 @@ const herbRoutes = require('./routes-herbs');
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173'],
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'https://solid-acorn-69g77pg9vgvwcrq9-3000.app.github.dev'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));

@@ -11,8 +11,8 @@ function transformHerb(raw) {
 
   const statusMap = {
     'HARVESTED':   'HARVESTED',
-    'IN_TRANSIT':  'HARVESTED',
-    'PROCESSING':  'PROCESSED',
+    'IN_TRANSIT':  'IN_TRANSIT',
+    'PROCESSING':  'PROCESSING',
     'PACKAGED':    'PACKAGED',
     'DISTRIBUTED': 'DISTRIBUTED'
   };
@@ -31,11 +31,12 @@ function transformHerb(raw) {
     id: herb.herbId,
     name: herb.herbName,
     species: herb.species || '',
-    harvestDate: herb.harvestDate || '',
+    harvestDate: (herb.harvestDate && herb.harvestDate !== '') ? herb.harvestDate : ((herb.notes && herb.notes.match(/Date:([\d-]+)/)) ? herb.notes.match(/Date:([\d-]+)/)[1] : ''),
     status: currentStatus,
     location: herb.location || '',
     collectorEmail: herb.collectorId || '',
     processorEmail: herb.processorId || '',
+    receivedDate: herb.timestamp || '',
     ethereumHash: herb.txHash || '',
     verificationStatus: currentStatus === 'DISTRIBUTED' ? 'verified' : 'pending',
     notes: herb.notes || '',
@@ -62,7 +63,7 @@ router.post('/harvest', authMiddleware, requireRole('collector'), async (req, re
 router.post('/transfer', authMiddleware, requireRole('collector'), async (req, res) => {
   try {
     const { herbId, recipientEmail, notes } = req.body;
-    await submitTx('TransferToProcessor', herbId, recipientEmail, notes || '');
+    await submitTx('TransferToProcessor', herbId, recipientEmail);
     res.json({ message: 'Herb transferred successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -72,8 +73,12 @@ router.post('/transfer', authMiddleware, requireRole('collector'), async (req, r
 // GET /herbs/my-herbs
 router.get('/my-herbs', authMiddleware, async (req, res) => {
   try {
-    const raw = await evaluateTx('QueryByCollector', req.user.fabricId);
-    const herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+    const raw = await evaluateTx('QueryAllHerbs');
+    const all = JSON.parse(raw);
+    const herbs = all
+      .filter(h => h.collectorId === req.user.fabricId)
+      .map(h => transformHerb(JSON.stringify(h)))
+      .filter(Boolean);
     res.json({ herbs });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -86,7 +91,7 @@ router.post('/process', authMiddleware, requireRole('processor'), async (req, re
     const { herbId, processingMethod, duration, temperature, notes } = req.body;
     const batchId = `B${Date.now()}`;
     const details = `${processingMethod} ${duration}h ${temperature}C ${notes || ''}`;
-    await submitTx('ProcessHerb', herbId, batchId, req.user.fabricId, details);
+    await submitTx('ProcessHerb', herbId, batchId);
     res.json({ message: 'Processing recorded successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -111,7 +116,7 @@ router.post('/distribute', authMiddleware, requireRole('processor'), async (req,
   try {
     const { herbId, recipientEmail, distributionDate, notes } = req.body;
     const distId = `D${Date.now()}`;
-    await submitTx('DistributeHerb', herbId, distId, recipientEmail, notes || '');
+    await submitTx('DistributeHerb', herbId, distId);
     res.json({ message: 'Distribution recorded successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -161,6 +166,28 @@ router.get('/verify/:herbId', async (req, res) => {
     res.json({ herb });
   } catch (err) {
     res.status(404).json({ message: 'Herb not found' });
+  }
+});
+
+// GET /herbs/ready-to-package
+router.get('/ready-to-package', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryByStatus', 'PROCESSING');
+    const herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+    res.json({ herbs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /herbs/ready-to-distribute
+router.get('/ready-to-distribute', authMiddleware, requireRole('processor'), async (req, res) => {
+  try {
+    const raw = await evaluateTx('QueryByStatus', 'PACKAGED');
+    const herbs = JSON.parse(raw).map(h => transformHerb(JSON.stringify(h))).filter(Boolean);
+    res.json({ herbs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
