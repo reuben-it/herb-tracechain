@@ -1,0 +1,16 @@
+{
+  "name": "herb-tracechain-eth",
+  "version": "1.0.0",
+  "description": "Ethereum smart contracts for Herb-Tracechain hash verification",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "node": "npx hardhat node",
+    "deploy": "npx hardhat run scripts/deploy.js --network localhost",
+    "deploy:local": "npx hardhat run scripts/deploy.js --network localhost"
+  },
+  "dependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "ethers": "^6.13.4",
+    "hardhat": "^2.22.17"
+  }
+}

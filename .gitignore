@@ -20,9 +20,9 @@ Thumbs.db
 fabric-samples/
 *.tar.gz
 
-# Ethereum
-artifacts/
-cache/
+# Ethereum / Hardhat
+eth/artifacts/
+eth/cache/
 
 # Build
 dist/
@@ -33,7 +33,13 @@ build/
 
 coverage/
 
-node_modules/
-.env
-.vscode/
-*.log
+# Backend
+backend/node_modules/
+backend/.env
+
+# Eth
+eth/node_modules/
+
+# SMS Gateway
+sms-gateway/node_modules/
+sms-gateway/.env
