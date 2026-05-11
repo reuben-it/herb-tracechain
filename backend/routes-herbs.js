@@ -3,6 +3,7 @@ const { submitTx, evaluateTx } = require('./fabric');
 const { authMiddleware, requireRole } = require('./middleware');
 
 const router = express.Router();
+const ethereumService = require('./ethereumService');
 
 // Helper — transform chaincode Herb object to frontend shape
 function transformHerb(raw) {
@@ -53,6 +54,7 @@ router.post('/harvest', authMiddleware, requireRole('collector'), async (req, re
     const notes = `Species:${species || 'N/A'} Date:${harvestDate || 'N/A'}`;
 
     await submitTx('RecordHarvest', herbId, collectorId, name, location, quantity, 'kg', notes);
+    try { await ethereumService.anchorHash(herbId, { herbId, name, location, quantity, collectorEmail: collectorId, status: 'HARVESTED' }); } catch(e) { console.warn('[ETH] anchor failed:', e.message); }
     res.status(201).json({ herbId, message: 'Herb harvested successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -117,6 +119,7 @@ router.post('/distribute', authMiddleware, requireRole('processor'), async (req,
     const { herbId, recipientEmail, distributionDate, notes } = req.body;
     const distId = `D${Date.now()}`;
     await submitTx('DistributeHerb', herbId, distId);
+    try { await ethereumService.anchorHash(herbId, { herbId, status: 'DISTRIBUTED' }); } catch(e) { console.warn('[ETH] anchor failed:', e.message); }
     res.json({ message: 'Distribution recorded successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
