@@ -30,7 +30,7 @@ function transformHerb(raw) {
   return {
     id: herb.herbId,
     name: herb.herbName,
-    species: herb.species || '',
+    species: herb.species || (herb.notes && herb.notes.match(/Species:([^ ]+)/) ? herb.notes.match(/Species:([^ ]+)/)[1] : ''),
     harvestDate: (herb.harvestDate && herb.harvestDate !== '') ? herb.harvestDate : ((herb.notes && herb.notes.match(/Date:([\d-]+)/)) ? herb.notes.match(/Date:([\d-]+)/)[1] : ''),
     status: currentStatus,
     location: herb.location || '',

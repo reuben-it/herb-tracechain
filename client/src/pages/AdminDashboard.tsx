@@ -179,7 +179,7 @@ export default function AdminDashboard() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          {new Date(herb.harvestDate).toLocaleDateString()}
+                          {herb.harvestDate ? new Date(herb.harvestDate).toLocaleDateString() : "—"}
                         </TableCell>
                         <TableCell>
                           <Button

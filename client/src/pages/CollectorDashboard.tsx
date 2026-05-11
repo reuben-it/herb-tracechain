@@ -346,7 +346,7 @@ export default function CollectorDashboard() {
                           <TableCell>{herb.species}</TableCell>
                           <TableCell>{herb.location}</TableCell>
                           <TableCell>
-                            {new Date(herb.harvestDate).toLocaleDateString()}
+                            {herb.harvestDate ? new Date(herb.harvestDate).toLocaleDateString() : "—"}
                           </TableCell>
                           <TableCell>
                             <span className="px-2 py-1 rounded-full text-sm bg-green-100 text-green-700">

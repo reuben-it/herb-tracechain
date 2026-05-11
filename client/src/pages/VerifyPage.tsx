@@ -186,7 +186,7 @@ export default function VerifyPage({ herbId }: VerifyPageProps) {
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Harvest Date</p>
                   <p className="text-lg font-semibold text-gray-900">
-                    {new Date(herb.harvestDate).toLocaleDateString()}
+                    {herb.harvestDate ? new Date(herb.harvestDate).toLocaleDateString() : "—"}
                   </p>
                 </div>
 
