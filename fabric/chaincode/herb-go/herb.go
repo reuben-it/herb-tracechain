@@ -22,11 +22,11 @@ type Herb struct {
 	Notes       string `json:"notes"`
 	Status      string `json:"status"`
 	Timestamp   string `json:"timestamp"`
-	ProcessorID string `json:"processorId,omitempty"`
-	BatchID string `json:"batchId,omitempty"`
-	PackageID string `json:"packageId,omitempty"`
-	DistID string `json:"distId,omitempty"`
-	TxHash string `json:"txHash,omitempty"`
+	ProcessorID string `json:"processorId"`
+	BatchID string `json:"batchId"`
+	PackageID string `json:"packageId"`
+	DistID string `json:"distId"`
+	TxHash string `json:"txHash"`
 }
 
 func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
@@ -269,4 +269,16 @@ func main() {
 	if err := cc.Start(); err != nil {
 		panic(err)
 	}
+}
+func (s *SmartContract) UpdateEthereumHash(ctx contractapi.TransactionContextInterface, herbID, txHash string) error {
+        herb, err := s.getHerb(ctx, herbID)
+        if err != nil {
+                return err
+        }
+        herb.TxHash = txHash
+        data, err := json.Marshal(herb)
+        if err != nil {
+                return err
+        }
+        return ctx.GetStub().PutState(herbID, data)
 }
